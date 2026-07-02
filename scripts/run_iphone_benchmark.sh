@@ -8,16 +8,20 @@ SCHEME="CoreMLLLMChat"
 MODEL=""
 MODE=""
 MAX_NEW_TOKENS=64
+REPEAT_COUNT=1
+RUN_TAG=""
 DEVICE_ID="${DEVICE_ID:-}"
 
 usage() {
-    echo "Usage: $0 --model 4B|8B --mode text|image [--device DEVICE_ID]"
+    echo "Usage: $0 --model 4B|8B --mode text|image [--repeat-count N] [--run-tag DEVICE_CONDITION] [--device DEVICE_ID]"
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --model) MODEL="${2:-}"; shift 2 ;;
         --mode) MODE="${2:-}"; shift 2 ;;
+        --repeat-count) REPEAT_COUNT="${2:-}"; shift 2 ;;
+        --run-tag) RUN_TAG="${2:-}"; shift 2 ;;
         --device) DEVICE_ID="${2:-}"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
@@ -30,6 +34,10 @@ if [[ "$MODEL" != "4B" && "$MODEL" != "8B" ]]; then
 fi
 if [[ "$MODE" != "text" && "$MODE" != "image" ]]; then
     echo "--mode must be text or image" >&2
+    exit 2
+fi
+if [[ ! "$REPEAT_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "--repeat-count must be a positive integer" >&2
     exit 2
 fi
 
@@ -46,11 +54,15 @@ if [[ -z "$DEVICE_ID" ]]; then
             --columns identifier --hide-default-columns --hide-headers 2>/dev/null \
             || true; } | awk 'NF { print $NF; exit }')"
 fi
+
 if [[ -z "$DEVICE_ID" ]]; then
     echo "No connected iPhone found. Unlock/trust it, then run:" >&2
     echo "  xcrun devicectl list devices" >&2
     echo "Or set DEVICE_ID / pass --device." >&2
     exit 1
+fi
+if [[ -z "$RUN_TAG" ]]; then
+    RUN_TAG="device-${DEVICE_ID}_charger-unknown"
 fi
 
 if [[ "$MODEL" == "8B" ]]; then
@@ -65,6 +77,8 @@ APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/CoreMLLLMChat.app"
 
 echo "Bundle ID: $BUNDLE_ID"
 echo "Device:    $DEVICE_ID"
+echo "Run tag:   $RUN_TAG"
+echo "Repeats:   $REPEAT_COUNT"
 echo "Building Release app..."
 xcodebuild \
     -project "$PROJECT" \
@@ -91,12 +105,16 @@ if ! xcrun devicectl device process launch \
     --run-benchmark-suite \
     "--benchmark-model=$MODEL" \
     "--benchmark-mode=$MODE" \
-    "--benchmark-max-new-tokens=$MAX_NEW_TOKENS"; then
+    "--benchmark-max-new-tokens=$MAX_NEW_TOKENS" \
+    "--benchmark-repeat-count=$REPEAT_COUNT" \
+    "--benchmark-run-tag=$RUN_TAG"; then
     echo "Automatic launch failed. In Xcode, add these Run arguments and launch on the iPhone:" >&2
     echo "  --run-benchmark-suite" >&2
     echo "  --benchmark-model=$MODEL" >&2
     echo "  --benchmark-mode=$MODE" >&2
     echo "  --benchmark-max-new-tokens=$MAX_NEW_TOKENS" >&2
+    echo "  --benchmark-repeat-count=$REPEAT_COUNT" >&2
+    echo "  --benchmark-run-tag=$RUN_TAG" >&2
     exit 1
 fi
 

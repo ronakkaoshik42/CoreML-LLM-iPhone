@@ -32,6 +32,8 @@ arguments are:
 --benchmark-model=4B
 --benchmark-mode=text
 --benchmark-max-new-tokens=64
+--benchmark-repeat-count=1
+--benchmark-run-tag=device-condition_charger-state
 ```
 
 Change `4B` to `8B` or `text` to `image` as needed. A normal launch without the
@@ -48,6 +50,12 @@ From the repository root:
 ```bash
 bash scripts/run_iphone_benchmark.sh --model 4B --mode text
 ```
+
+Use `--repeat-count N` for repeated generations in one app launch. Runs that
+load the model are labeled `state=cold`; runs reusing it are labeled
+`state=warm`. Use `--run-tag` to record the device condition and charger state;
+model, mode, and run ID are appended by the suite. Defaults remain one run and
+an unspecified charger state.
 
 For 8B:
 
@@ -83,6 +91,20 @@ The script requests `Documents/benchmark_results.log` from the app data
 container with `devicectl`, saves it under the ignored `benchmark_results/`
 folder by default, and prints it. If container extraction fails, use **Bench →
 Benchmark Results → Copy Results**.
+
+Summarize one or more collected logs without changing them:
+
+```bash
+python3 scripts/summarize_benchmark_results.py benchmark_results/my-run.log
+```
+
+The summarizer uses the second `[RESULT]` inside each successful benchmark run,
+which is the wrapper-level result, and reports medians and ranges by tag, model,
+mode, and cold/warm state.
+
+Text runs also record `[BENCH_TEXT]` with the word count, validation status, and
+base64-encoded generated text. The fixed text benchmark succeeds only when the
+response contains exactly 20 whitespace-delimited words.
 
 Useful diagnostics:
 

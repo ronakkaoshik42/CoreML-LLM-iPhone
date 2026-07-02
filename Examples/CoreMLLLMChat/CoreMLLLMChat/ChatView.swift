@@ -638,6 +638,8 @@ struct ChatView: View {
         model: BenchmarkSuite.Model,
         mode: BenchmarkSuite.Mode,
         maxNewTokens: Int = 64,
+        repeatCount: Int = 1,
+        runTag: String = "unspecified",
         automatic: Bool = false
     ) {
         benchmarkRunning = true
@@ -652,7 +654,9 @@ struct ChatView: View {
                 model: model,
                 mode: mode,
                 image: image,
-                maxNewTokens: maxNewTokens)
+                maxNewTokens: maxNewTokens,
+                repeatCount: repeatCount,
+                runTag: runTag)
             await MainActor.run {
                 UIApplication.shared.isIdleTimerDisabled = false
                 benchmarkRunning = false
@@ -681,6 +685,8 @@ struct ChatView: View {
             model: config.model,
             mode: config.mode,
             maxNewTokens: config.maxNewTokens,
+            repeatCount: config.repeatCount,
+            runTag: config.runTag,
             automatic: true)
     }
 
