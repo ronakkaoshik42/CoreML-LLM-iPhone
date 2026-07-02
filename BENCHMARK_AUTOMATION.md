@@ -34,6 +34,7 @@ arguments are:
 --benchmark-max-new-tokens=64
 --benchmark-repeat-count=1
 --benchmark-run-tag=device-condition_charger-state
+--benchmark-fresh-state-each-run
 ```
 
 Change `4B` to `8B` or `text` to `image` as needed. A normal launch without the
@@ -56,6 +57,10 @@ load the model are labeled `state=cold`; runs reusing it are labeled
 `state=warm`. Use `--run-tag` to record the device condition and charger state;
 model, mode, and run ID are appended by the suite. Defaults remain one run and
 an unspecified charger state.
+
+For correctness isolation, `--fresh-state-each-run` resets persisted KV state
+between repetitions while keeping the model loaded. It is diagnostic and off
+by default.
 
 For 8B:
 

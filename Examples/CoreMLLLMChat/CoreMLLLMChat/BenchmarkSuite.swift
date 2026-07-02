@@ -10,6 +10,7 @@ final class BenchmarkSuite {
         let maxNewTokens: Int
         let repeatCount: Int
         let runTag: String
+        let freshStateEachRun: Bool
 
         init?(arguments: [String]) {
             guard arguments.contains("--run-benchmark-suite") else { return nil }
@@ -30,6 +31,7 @@ final class BenchmarkSuite {
                 1,
                 Int(value(for: "--benchmark-repeat-count=") ?? "1") ?? 1)
             runTag = value(for: "--benchmark-run-tag=") ?? "unspecified"
+            freshStateEachRun = arguments.contains("--benchmark-fresh-state-each-run")
         }
     }
 
@@ -63,19 +65,24 @@ final class BenchmarkSuite {
         image: CGImage? = nil,
         maxNewTokens: Int = 64,
         repeatCount: Int = 1,
-        runTag: String = "unspecified"
+        runTag: String = "unspecified",
+        freshStateEachRun: Bool = false
     ) async -> Bool {
         let count = max(1, repeatCount)
         let tagBase = sanitizeTag(runTag)
         var allSucceeded = true
 
         for run in 1...count {
+            if freshStateEachRun && run > 1 {
+                runner.resetConversation()
+            }
             let tag = "\(tagBase)_model-\(model.rawValue)_mode-\(mode.rawValue)_run-\(run)"
             let needsLoad = !runner.isLoaded || !runner.modelName.contains(model.rawValue)
             let state = needsLoad ? "cold" : "warm"
             let fields = "model=\(model.rawValue) mode=\(mode.rawValue) "
                 + "suite_tag=\(tagBase) tag=\(tag) "
-                + "run=\(run)/\(count) state=\(state)"
+                + "run=\(run)/\(count) state=\(state) "
+                + "kv=\(freshStateEachRun ? "fresh" : "default")"
             CoreMLPerfStats.recordResult("[BENCH_START] \(fields)")
             let succeeded = await runOnce(
                 model: model, mode: mode, image: image,

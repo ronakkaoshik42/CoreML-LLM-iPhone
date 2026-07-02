@@ -10,10 +10,11 @@ MODE=""
 MAX_NEW_TOKENS=64
 REPEAT_COUNT=1
 RUN_TAG=""
+FRESH_STATE_EACH_RUN=0
 DEVICE_ID="${DEVICE_ID:-}"
 
 usage() {
-    echo "Usage: $0 --model 4B|8B --mode text|image [--repeat-count N] [--run-tag DEVICE_CONDITION] [--device DEVICE_ID]"
+    echo "Usage: $0 --model 4B|8B --mode text|image [--repeat-count N] [--run-tag DEVICE_CONDITION] [--fresh-state-each-run] [--device DEVICE_ID]"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -22,6 +23,7 @@ while [[ $# -gt 0 ]]; do
         --mode) MODE="${2:-}"; shift 2 ;;
         --repeat-count) REPEAT_COUNT="${2:-}"; shift 2 ;;
         --run-tag) RUN_TAG="${2:-}"; shift 2 ;;
+        --fresh-state-each-run) FRESH_STATE_EACH_RUN=1; shift ;;
         --device) DEVICE_ID="${2:-}"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
@@ -79,6 +81,7 @@ echo "Bundle ID: $BUNDLE_ID"
 echo "Device:    $DEVICE_ID"
 echo "Run tag:   $RUN_TAG"
 echo "Repeats:   $REPEAT_COUNT"
+echo "Fresh KV:  $FRESH_STATE_EACH_RUN"
 echo "Building Release app..."
 xcodebuild \
     -project "$PROJECT" \
@@ -97,17 +100,23 @@ echo "Installing app..."
 xcrun devicectl device install app --device "$DEVICE_ID" --timeout 120 "$APP_PATH"
 
 echo "Launching automated benchmark..."
+LAUNCH_ARGS=(
+    --run-benchmark-suite
+    "--benchmark-model=$MODEL"
+    "--benchmark-mode=$MODE"
+    "--benchmark-max-new-tokens=$MAX_NEW_TOKENS"
+    "--benchmark-repeat-count=$REPEAT_COUNT"
+    "--benchmark-run-tag=$RUN_TAG"
+)
+if [[ "$FRESH_STATE_EACH_RUN" == "1" ]]; then
+    LAUNCH_ARGS+=(--benchmark-fresh-state-each-run)
+fi
 if ! xcrun devicectl device process launch \
     --device "$DEVICE_ID" \
     --timeout 30 \
     --terminate-existing \
     "$BUNDLE_ID" \
-    --run-benchmark-suite \
-    "--benchmark-model=$MODEL" \
-    "--benchmark-mode=$MODE" \
-    "--benchmark-max-new-tokens=$MAX_NEW_TOKENS" \
-    "--benchmark-repeat-count=$REPEAT_COUNT" \
-    "--benchmark-run-tag=$RUN_TAG"; then
+    "${LAUNCH_ARGS[@]}"; then
     echo "Automatic launch failed. In Xcode, add these Run arguments and launch on the iPhone:" >&2
     echo "  --run-benchmark-suite" >&2
     echo "  --benchmark-model=$MODEL" >&2
@@ -115,6 +124,9 @@ if ! xcrun devicectl device process launch \
     echo "  --benchmark-max-new-tokens=$MAX_NEW_TOKENS" >&2
     echo "  --benchmark-repeat-count=$REPEAT_COUNT" >&2
     echo "  --benchmark-run-tag=$RUN_TAG" >&2
+    if [[ "$FRESH_STATE_EACH_RUN" == "1" ]]; then
+        echo "  --benchmark-fresh-state-each-run" >&2
+    fi
     exit 1
 fi
 
