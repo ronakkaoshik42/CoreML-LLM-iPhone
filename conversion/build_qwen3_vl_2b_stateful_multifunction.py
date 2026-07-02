@@ -262,8 +262,16 @@ def merge_into_multifunction(decode_pkg: Path, prefill_pkg: Path,
 
 
 def main():
+    global load_text_config, load_text_backbone, ANEHeadChunk
+    global convert_body_stateful, convert_head, export_embed_fp16
+    global _body_boundaries, ANEStatefulBodyChunk, palettize_pkg
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--model-id", default="Qwen/Qwen3-VL-2B-Instruct",
+                    choices=["Qwen/Qwen3-VL-2B-Instruct",
+                             "Qwen/Qwen3-VL-4B-Instruct"],
+                    help="Source checkpoint; defaults preserve the 2B build")
     ap.add_argument("--max-seq", type=int, default=DEFAULT_MAX_SEQ)
     ap.add_argument("--num-chunks", type=int, default=4)
     ap.add_argument("--prefill-T", type=int, default=8,
@@ -272,13 +280,27 @@ def main():
     ap.add_argument("--keep-fp16", action="store_true")
     args = ap.parse_args()
 
+    model_size = "4b" if "-4B-" in args.model_id else "2b"
+    if model_size == "4b":
+        import build_qwen3_vl_8b_stateful_chunks as backend
+        backend.MODEL_ID = args.model_id
+        load_text_config = backend.load_text_config
+        load_text_backbone = backend.load_text_backbone
+        ANEHeadChunk = backend.ANEHeadChunk
+        convert_body_stateful = backend.convert_body_stateful
+        convert_head = backend.convert_head
+        export_embed_fp16 = backend.export_embed_fp16
+        _body_boundaries = backend._body_boundaries
+        ANEStatefulBodyChunk = backend.ANEStatefulBodyChunk
+        palettize_pkg = backend.palettize_pkg
+
     out_root = Path(args.out_dir).resolve()
-    chunks_dir = out_root / "qwen3_vl_2b_stateful_chunks"
+    chunks_dir = out_root / f"qwen3_vl_{model_size}_stateful_chunks"
     fp16_dir = out_root / "_fp16_intermediate"
     chunks_dir.mkdir(parents=True, exist_ok=True)
     fp16_dir.mkdir(parents=True, exist_ok=True)
 
-    print("loading Qwen3-VL 2B text backbone (fp32)...")
+    print(f"loading {args.model_id} text backbone (fp32)...")
     cfg = load_text_config()
     print(f"  cfg: layers={cfg.num_hidden_layers} hidden={cfg.hidden_size} "
           f"num_kv_heads={cfg.num_key_value_heads} head_dim={cfg.head_dim}")

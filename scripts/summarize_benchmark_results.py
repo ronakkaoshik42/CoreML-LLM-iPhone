@@ -29,7 +29,7 @@ def parse(path: Path) -> list[dict[str, str]]:
             current.update(values(line))
             results = current.pop("results")
             assert isinstance(results, list)
-            if current.get("success") == "true" and len(results) >= 2:
+            if len(results) >= 2:
                 current.update(values(results[1]))
                 runs.append({key: str(value) for key, value in current.items()})
             current = None
@@ -38,12 +38,12 @@ def parse(path: Path) -> list[dict[str, str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Summarize successful wrapper-level benchmark results.")
+        description="Summarize completed wrapper-level benchmark results.")
     parser.add_argument("logs", nargs="+", type=Path)
     args = parser.parse_args()
     runs = [run for path in args.logs for run in parse(path)]
     if not runs:
-        parser.error("no successful runs with a second [RESULT] line found")
+        parser.error("no completed runs with a second [RESULT] line found")
 
     print("Wrapper-level runs (second [RESULT] line):")
     for run in runs:

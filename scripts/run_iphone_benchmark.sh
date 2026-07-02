@@ -11,10 +11,11 @@ MAX_NEW_TOKENS=64
 REPEAT_COUNT=1
 RUN_TAG=""
 FRESH_STATE_EACH_RUN=0
+MODEL_VARIANT="default"
 DEVICE_ID="${DEVICE_ID:-}"
 
 usage() {
-    echo "Usage: $0 --model 4B|8B --mode text|image [--repeat-count N] [--run-tag DEVICE_CONDITION] [--fresh-state-each-run] [--device DEVICE_ID]"
+    echo "Usage: $0 --model 4B|8B --mode text|image [--repeat-count N] [--run-tag DEVICE_CONDITION] [--fresh-state-each-run] [--model-variant default|mf-b8] [--device DEVICE_ID]"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -24,6 +25,7 @@ while [[ $# -gt 0 ]]; do
         --repeat-count) REPEAT_COUNT="${2:-}"; shift 2 ;;
         --run-tag) RUN_TAG="${2:-}"; shift 2 ;;
         --fresh-state-each-run) FRESH_STATE_EACH_RUN=1; shift ;;
+        --model-variant) MODEL_VARIANT="${2:-}"; shift 2 ;;
         --device) DEVICE_ID="${2:-}"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
@@ -40,6 +42,14 @@ if [[ "$MODE" != "text" && "$MODE" != "image" ]]; then
 fi
 if [[ ! "$REPEAT_COUNT" =~ ^[1-9][0-9]*$ ]]; then
     echo "--repeat-count must be a positive integer" >&2
+    exit 2
+fi
+if [[ "$MODEL_VARIANT" != "default" && "$MODEL_VARIANT" != "mf-b8" ]]; then
+    echo "--model-variant must be default or mf-b8" >&2
+    exit 2
+fi
+if [[ "$MODEL_VARIANT" != "default" && "$MODEL" != "4B" ]]; then
+    echo "--model-variant mf-b8 currently supports only 4B" >&2
     exit 2
 fi
 
@@ -82,6 +92,7 @@ echo "Device:    $DEVICE_ID"
 echo "Run tag:   $RUN_TAG"
 echo "Repeats:   $REPEAT_COUNT"
 echo "Fresh KV:  $FRESH_STATE_EACH_RUN"
+echo "Variant:   $MODEL_VARIANT"
 echo "Building Release app..."
 xcodebuild \
     -project "$PROJECT" \
@@ -111,6 +122,9 @@ LAUNCH_ARGS=(
 if [[ "$FRESH_STATE_EACH_RUN" == "1" ]]; then
     LAUNCH_ARGS+=(--benchmark-fresh-state-each-run)
 fi
+if [[ "$MODEL_VARIANT" != "default" ]]; then
+    LAUNCH_ARGS+=("--benchmark-model-variant=$MODEL_VARIANT")
+fi
 if ! xcrun devicectl device process launch \
     --device "$DEVICE_ID" \
     --timeout 30 \
@@ -126,6 +140,9 @@ if ! xcrun devicectl device process launch \
     echo "  --benchmark-run-tag=$RUN_TAG" >&2
     if [[ "$FRESH_STATE_EACH_RUN" == "1" ]]; then
         echo "  --benchmark-fresh-state-each-run" >&2
+    fi
+    if [[ "$MODEL_VARIANT" != "default" ]]; then
+        echo "  --benchmark-model-variant=$MODEL_VARIANT" >&2
     fi
     exit 1
 fi

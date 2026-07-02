@@ -1404,7 +1404,14 @@ final class LLMRunner {
         let tok = try await AutoTokenizer.from(pretrained: "Qwen/Qwen3-VL-4B-Instruct")
         loadingStatus = "Compiling Qwen3-VL 4B stateful chunks (first run only)..."
         let gen = Qwen3VL2BStatefulGenerator(cfg: .default4B)
-        gen.modelFolderOverride = folder
+        var modelFolder = folder
+        if ProcessInfo.processInfo.arguments.contains("--benchmark-model-variant=mf-b8"),
+           let documents = FileManager.default.urls(
+               for: .documentDirectory, in: .userDomainMask).first {
+            modelFolder = documents.appendingPathComponent(
+                "Models/qwen3-vl-4b-stateful-mf-b8")
+        }
+        gen.modelFolderOverride = modelFolder
         try gen.load()
         qwen3vl4bStatefulGenerator = gen
         qwen3vl2bTokenizer = tok   // shared Qwen3-VL tokenizer slot
