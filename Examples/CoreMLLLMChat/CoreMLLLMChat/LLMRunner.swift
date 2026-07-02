@@ -444,7 +444,8 @@ final class LLMRunner {
     // MARK: - Generation
 
     func generate(messages: [ChatMessage], image: CGImage? = nil,
-                  audio: [Float]? = nil) async throws -> AsyncStream<String> {
+                  audio: [Float]? = nil,
+                  maxNewTokens: Int? = nil) async throws -> AsyncStream<String> {
         if qwen35MLKVGenerator != nil {
             return try await generateQwen35MLKV(messages: messages)
         }
@@ -460,10 +461,12 @@ final class LLMRunner {
                 messages: messages, image: image, audio: audio)
         }
         if qwen3vl8bStatefulGenerator != nil {
-            return try await generateQwen3VL8BStateful(messages: messages, image: image)
+            return try await generateQwen3VL8BStateful(
+                messages: messages, image: image, maxNewTokens: maxNewTokens)
         }
         if qwen3vl4bStatefulGenerator != nil {
-            return try await generateQwen3VL4BStateful(messages: messages, image: image)
+            return try await generateQwen3VL4BStateful(
+                messages: messages, image: image, maxNewTokens: maxNewTokens)
         }
         if granite4Generator != nil {
             return try await generateGranite4(messages: messages)
@@ -1262,7 +1265,8 @@ final class LLMRunner {
     }
 
     private func generateQwen3VL8BStateful(messages: [ChatMessage],
-                                            image: CGImage? = nil
+                                            image: CGImage? = nil,
+                                            maxNewTokens: Int? = nil
     ) async throws -> AsyncStream<String> {
         guard let gen = qwen3vl8bStatefulGenerator,
               let tok = qwen3vl2bTokenizer
@@ -1314,18 +1318,40 @@ final class LLMRunner {
                     "prompt (\(inputIdsInt32.count) tokens) exceeds max_seq=\(maxSeq). "
                     + "Clear chat or shorten."])
         }
-        let maxNew = min(remaining, 1024)
+        let maxNew = min(remaining, maxNewTokens ?? 1024)
 
         var eosSet: Set<Int32> = [151643, 151644, 151645]
         if let eid = tok.eosTokenId { eosSet.insert(Int32(eid)) }
 
         return AsyncStream { continuation in
             Task { [weak self] in
-                defer { Task { @MainActor in self?.isGenerating = false } }
+                let genStart = CoreMLPerfStats.now()
+                let mode = image == nil ? "text" : "image"
                 var accumIds: [Int] = []
                 var emittedText = ""
                 var tokenCount = 0
-                var firstTokenAt: Date?
+                var firstTokenTime: CFAbsoluteTime?
+                var peakFootprint = CoreMLPerfStats.physFootprintBytes()
+                print("[PERF] 8B wrapper generation start")
+                defer {
+                    let genEnd = CoreMLPerfStats.now()
+                    peakFootprint = max(peakFootprint, CoreMLPerfStats.physFootprintBytes())
+                    let totalSec = genEnd - genStart
+                    let decodeSec = firstTokenTime.map { max(genEnd - $0, 0.001) } ?? 0
+                    let tokps = firstTokenTime == nil ? 0 : Double(tokenCount) / decodeSec
+                    let ttft = firstTokenTime.map {
+                        String(format: "%.3f", $0 - genStart)
+                    } ?? "NA"
+                    let resultLine = "[RESULT] model=8B mode=\(mode) tokens=\(tokenCount) "
+                        + "ttft_sec=\(ttft) total_sec=\(String(format: "%.3f", totalSec)) "
+                        + "decode_sec=\(String(format: "%.3f", decodeSec)) "
+                        + "tokps=\(String(format: "%.2f", tokps)) "
+                        + "peak_gb=\(CoreMLPerfStats.gb(peakFootprint))"
+                    CoreMLPerfStats.recordResult(resultLine)
+                    print("[PERF] 8B wrapper generation end")
+                    continuation.finish()
+                    Task { @MainActor in self?.isGenerating = false }
+                }
                 do {
                     _ = try await gen.generate(
                         inputIds: inputIdsInt32,
@@ -1334,6 +1360,14 @@ final class LLMRunner {
                         visionFeatures: visionFeatures,
                         onToken: { [weak self] tokenId in
                             tokenCount += 1
+                            if firstTokenTime == nil {
+                                firstTokenTime = CoreMLPerfStats.now()
+                            }
+                            if tokenCount % 8 == 0 {
+                                peakFootprint = max(
+                                    peakFootprint,
+                                    CoreMLPerfStats.physFootprintBytes())
+                            }
                             if eosSet.contains(tokenId) { return }
                             accumIds.append(Int(tokenId))
                             var current = tok.decode(tokens: accumIds)
@@ -1346,9 +1380,8 @@ final class LLMRunner {
                                 continuation.yield(delta)
                                 emittedText = current
                             }
-                            if firstTokenAt == nil { firstTokenAt = Date() }
-                            if let start = firstTokenAt {
-                                let elapsed = Date().timeIntervalSince(start)
+                            if let start = firstTokenTime {
+                                let elapsed = CoreMLPerfStats.now() - start
                                 let n = max(tokenCount - 1, 0)
                                 if elapsed > 0 && n > 0 {
                                     Task { @MainActor in
@@ -1360,7 +1393,6 @@ final class LLMRunner {
                 } catch {
                     continuation.yield("[Error: \(error.localizedDescription)]")
                 }
-                continuation.finish()
             }
         }
     }
@@ -1411,7 +1443,8 @@ final class LLMRunner {
     }
 
     private func generateQwen3VL4BStateful(messages: [ChatMessage],
-                                            image: CGImage? = nil
+                                            image: CGImage? = nil,
+                                            maxNewTokens: Int? = nil
     ) async throws -> AsyncStream<String> {
         guard let gen = qwen3vl4bStatefulGenerator,
               let tok = qwen3vl2bTokenizer
@@ -1460,18 +1493,40 @@ final class LLMRunner {
                     "prompt (\(inputIdsInt32.count) tokens) exceeds max_seq=\(maxSeq). "
                     + "Clear chat or shorten."])
         }
-        let maxNew = min(remaining, 1024)
+        let maxNew = min(remaining, maxNewTokens ?? 1024)
 
         var eosSet: Set<Int32> = [151643, 151644, 151645]
         if let eid = tok.eosTokenId { eosSet.insert(Int32(eid)) }
 
         return AsyncStream { continuation in
             Task { [weak self] in
-                defer { Task { @MainActor in self?.isGenerating = false } }
+                let genStart = CoreMLPerfStats.now()
+                let mode = image == nil ? "text" : "image"
                 var accumIds: [Int] = []
                 var emittedText = ""
                 var tokenCount = 0
-                var firstTokenAt: Date?
+                var firstTokenTime: CFAbsoluteTime?
+                var peakFootprint = CoreMLPerfStats.physFootprintBytes()
+                print("[PERF] 4B wrapper generation start")
+                defer {
+                    let genEnd = CoreMLPerfStats.now()
+                    peakFootprint = max(peakFootprint, CoreMLPerfStats.physFootprintBytes())
+                    let totalSec = genEnd - genStart
+                    let decodeSec = firstTokenTime.map { max(genEnd - $0, 0.001) } ?? 0
+                    let tokps = firstTokenTime == nil ? 0 : Double(tokenCount) / decodeSec
+                    let ttft = firstTokenTime.map {
+                        String(format: "%.3f", $0 - genStart)
+                    } ?? "NA"
+                    let resultLine = "[RESULT] model=4B mode=\(mode) tokens=\(tokenCount) "
+                        + "ttft_sec=\(ttft) total_sec=\(String(format: "%.3f", totalSec)) "
+                        + "decode_sec=\(String(format: "%.3f", decodeSec)) "
+                        + "tokps=\(String(format: "%.2f", tokps)) "
+                        + "peak_gb=\(CoreMLPerfStats.gb(peakFootprint))"
+                    CoreMLPerfStats.recordResult(resultLine)
+                    print("[PERF] 4B wrapper generation end")
+                    continuation.finish()
+                    Task { @MainActor in self?.isGenerating = false }
+                }
                 do {
                     _ = try await gen.generate(
                         inputIds: inputIdsInt32,
@@ -1480,6 +1535,14 @@ final class LLMRunner {
                         visionFeatures: visionFeatures,
                         onToken: { [weak self] tokenId in
                             tokenCount += 1
+                            if firstTokenTime == nil {
+                                firstTokenTime = CoreMLPerfStats.now()
+                            }
+                            if tokenCount % 8 == 0 {
+                                peakFootprint = max(
+                                    peakFootprint,
+                                    CoreMLPerfStats.physFootprintBytes())
+                            }
                             if eosSet.contains(tokenId) { return }
                             accumIds.append(Int(tokenId))
                             var current = tok.decode(tokens: accumIds)
@@ -1492,9 +1555,8 @@ final class LLMRunner {
                                 continuation.yield(delta)
                                 emittedText = current
                             }
-                            if firstTokenAt == nil { firstTokenAt = Date() }
-                            if let start = firstTokenAt {
-                                let elapsed = Date().timeIntervalSince(start)
+                            if let start = firstTokenTime {
+                                let elapsed = CoreMLPerfStats.now() - start
                                 let n = max(tokenCount - 1, 0)
                                 if elapsed > 0 && n > 0 {
                                     Task { @MainActor in
@@ -1506,7 +1568,6 @@ final class LLMRunner {
                 } catch {
                     continuation.yield("[Error: \(error.localizedDescription)]")
                 }
-                continuation.finish()
             }
         }
     }
@@ -2194,9 +2255,9 @@ final class LLMRunner {
         var opts = Granite4Generator.SamplingOptions()
         // Allow up to context-1 new tokens; Granite4Generator stops at
         // maxSeq anyway, and 256 was unnecessarily short for chat.
-        opts.maxNewTokens = 1800
+        opts.maxNewTokens = 120
         opts.temperature = 0.0
-        opts.repetitionPenalty = 1.1
+        opts.repetitionPenalty = 1.2
 
         isGenerating = true
         tokensPerSecond = 0

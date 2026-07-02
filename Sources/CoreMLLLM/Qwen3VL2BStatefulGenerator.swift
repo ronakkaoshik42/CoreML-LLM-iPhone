@@ -504,6 +504,13 @@ public final class Qwen3VL2BStatefulGenerator {
     public func prewarm() async throws {
         guard !bodyChunks.isEmpty, headChunk != nil else { return }
 
+        let warmStart = CoreMLPerfStats.now()
+        CoreMLPerfStats.log("\(benchmarkModelName) ANE prewarm start")
+        defer {
+            CoreMLPerfStats.log("\(benchmarkModelName) ANE prewarm end")
+            CoreMLPerfStats.logInterval("\(benchmarkModelName) prewarm_sec", start: warmStart)
+        }
+
         // Source models for state creation (mirrors generate()'s logic).
         var stateSource: [MLModel] = []
         for ci in 0..<bodyChunks.count {
@@ -608,6 +615,14 @@ public final class Qwen3VL2BStatefulGenerator {
     }
 
     public func load() throws {
+        let loadStart = CoreMLPerfStats.now()
+        var peakFootprint = CoreMLPerfStats.physFootprintBytes()
+        func logLoadStage(_ label: String) {
+            peakFootprint = max(peakFootprint, CoreMLPerfStats.physFootprintBytes())
+            CoreMLPerfStats.log("\(benchmarkModelName) \(label)")
+        }
+
+        logLoadStage("load start")
         guard let r = resolveURLs() else {
             throw NSError(domain: "Qwen3VL2BStateful", code: 40,
                 userInfo: [NSLocalizedDescriptionKey:
@@ -618,11 +633,18 @@ public final class Qwen3VL2BStatefulGenerator {
         // persisted state from a prior load points at models we're
         // about to release — drop it before we lose the binding.
         resetPersistedState()
+        logLoadStage("before embeddings")
         try mmapEmbedWeight(url: r.embed)
+        logLoadStage("after embeddings")
         let mcfg = MLModelConfiguration()
         mcfg.computeUnits = cfg.computeUnits
+        print("[PERF] compute_units=\(cfg.computeUnits.rawValue)")
+        logLoadStage("before body chunks")
         bodyChunks = try r.body.map { try MLModel(contentsOf: $0, configuration: mcfg) }
+        logLoadStage("after body chunks")
+        logLoadStage("before head")
         headChunk = try MLModel(contentsOf: r.head, configuration: mcfg)
+        logLoadStage("after head")
 
         // Probe each body chunk for a `prefill_b<N>` function by
         // attempting to load chunk_0 with each common N. Core ML throws
@@ -630,6 +652,7 @@ public final class Qwen3VL2BStatefulGenerator {
         // mlpackage is multifunction and we load the rest at that N.
         bodyPrefillChunks = []
         prefillT = 1
+        logLoadStage("before multifunction prefill probe")
         for candidate in [8, 16, 32, 64] {
             let pcfg = MLModelConfiguration()
             pcfg.computeUnits = cfg.computeUnits
@@ -652,8 +675,10 @@ public final class Qwen3VL2BStatefulGenerator {
                 break
             }
         }
+        logLoadStage("after multifunction prefill probe")
 
         if let vurl = r.chunk0Vision {
+            logLoadStage("before optional vision chunk")
             chunk0Vision = try MLModel(contentsOf: vurl, configuration: mcfg)
             // Probe chunk_0_vision for prefill_b<prefillT> too (vision
             // multifunction). Same compatibility rules as the text path.
@@ -665,12 +690,24 @@ public final class Qwen3VL2BStatefulGenerator {
                     chunk0VisionPrefill = pm
                 }
             }
+            logLoadStage("after optional vision chunk")
+        } else {
+            CoreMLPerfStats.log("\(benchmarkModelName) optional vision chunk absent")
         }
         let visionTag = chunk0Vision == nil ? "" : " + chunk_0_vision"
         let visionMfTag = chunk0VisionPrefill == nil ? "" : "(mf)"
         let prefillTag = bodyPrefillChunks.isEmpty ? "" : " + prefill_b\(prefillT)"
         status = "Loaded: \(bodyChunks.count) chunks + head\(visionTag)\(visionMfTag)\(prefillTag), "
             + "units=\(cfg.computeUnits.rawValue)"
+        let loadEnd = CoreMLPerfStats.now()
+        logLoadStage("load end")
+        CoreMLPerfStats.logInterval("\(benchmarkModelName) load_time_sec",
+                                    start: loadStart, end: loadEnd)
+        let resultLine = "[RESULT_LOAD] model=\(benchmarkModelName) "
+            + "load_sec=\(String(format: "%.3f", loadEnd - loadStart)) "
+            + "peak_gb=\(CoreMLPerfStats.gb(peakFootprint)) "
+            + "available_gb=\(CoreMLPerfStats.gb(CoreMLPerfStats.availableMemoryBytes()))"
+        CoreMLPerfStats.recordResult(resultLine)
     }
 
     /// Probe whether the chunk is a multifunction mlpackage with a
@@ -1152,6 +1189,32 @@ public final class Qwen3VL2BStatefulGenerator {
                     "image present but chunk_0_vision is not loaded"])
         }
 
+        let generationStart = CoreMLPerfStats.now()
+        let benchmarkMode = visionFeatures == nil ? "text" : "image"
+        var firstTokenTime: CFAbsoluteTime?
+        var generatedTokenCount = 0
+        var peakFootprint = CoreMLPerfStats.physFootprintBytes()
+        func samplePeak(_ label: String) {
+            let current = CoreMLPerfStats.physFootprintBytes()
+            if current > peakFootprint {
+                peakFootprint = current
+                print("[PERF] peak_update label=\(label) "
+                      + "peak_gb=\(CoreMLPerfStats.gb(peakFootprint))")
+            }
+        }
+        func emitToken(_ token: Int32) {
+            generatedTokenCount += 1
+            if firstTokenTime == nil {
+                firstTokenTime = CoreMLPerfStats.now()
+                CoreMLPerfStats.log("\(benchmarkModelName) first token")
+                samplePeak("first_token")
+            } else if generatedTokenCount % 8 == 0 {
+                samplePeak("token_\(generatedTokenCount)")
+            }
+            onToken?(token)
+        }
+        CoreMLPerfStats.log("\(benchmarkModelName) \(benchmarkMode) generation start")
+
         // Cross-turn KV reuse: if the persisted state's input prefix
         // matches the new prompt AND vision identity is unchanged, skip
         // re-prefill of the common prefix. We require persistedInputIds
@@ -1353,7 +1416,7 @@ public final class Qwen3VL2BStatefulGenerator {
         var decoded: [Int32] = []
         if maxNewTokens > 0 {
             decoded.append(prefillPredicted)
-            onToken?(prefillPredicted)
+            emitToken(prefillPredicted)
             lastToken = prefillPredicted
         }
         while decoded.count < maxNewTokens {
@@ -1363,11 +1426,32 @@ public final class Qwen3VL2BStatefulGenerator {
                 token: lastToken, position: position,
                 states: states, collectTimings: true)
             decoded.append(next)
-            onToken?(next)
+            emitToken(next)
             lastToken = next
             position += 1
         }
         let t1 = CFAbsoluteTimeGetCurrent()
+        samplePeak("generation_end")
+        CoreMLPerfStats.log("\(benchmarkModelName) \(benchmarkMode) generation end")
+        let totalSec = t1 - generationStart
+        let decodeSec = firstTokenTime.map { max(t1 - $0, 0.001) } ?? 0
+        let tokps = firstTokenTime == nil ? 0 : Double(generatedTokenCount) / decodeSec
+        let ttftString = firstTokenTime.map {
+            String(format: "%.3f", $0 - generationStart)
+        } ?? "NA"
+        print("[PERF] ttft_sec=\(ttftString)")
+        print("[PERF] tokens=\(generatedTokenCount) "
+              + "total_sec=\(String(format: "%.3f", totalSec)) "
+              + "decode_sec=\(String(format: "%.3f", decodeSec)) "
+              + "tokps=\(String(format: "%.2f", tokps))")
+        print("[PERF] peak_memory=\(CoreMLPerfStats.gb(peakFootprint)) GB")
+        let resultLine = "[RESULT] model=\(benchmarkModelName) mode=\(benchmarkMode) "
+            + "tokens=\(generatedTokenCount) ttft_sec=\(ttftString) "
+            + "total_sec=\(String(format: "%.3f", totalSec)) "
+            + "decode_sec=\(String(format: "%.3f", decodeSec)) "
+            + "tokps=\(String(format: "%.2f", tokps)) "
+            + "peak_gb=\(CoreMLPerfStats.gb(peakFootprint))"
+        CoreMLPerfStats.recordResult(resultLine)
 
         // Persist the state's consumed-token sequence so the next
         // generate() can match by LCP. The MLState was advanced by:
@@ -1409,5 +1493,12 @@ public final class Qwen3VL2BStatefulGenerator {
             resumeTag as NSString,
             decoded.count, decodeMs, decodeTokPerS, breakdown)
         return decoded
+    }
+
+    private var benchmarkModelName: String {
+        if cfg.chunkSubdir.contains("8b") { return "8B" }
+        if cfg.chunkSubdir.contains("4b") { return "4B" }
+        if cfg.chunkSubdir.contains("2b") { return "2B" }
+        return cfg.chunkSubdir
     }
 }

@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -20,6 +20,7 @@
 		B1000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2000007 /* Assets.xcassets */; };
 		B1000008 /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = B9000001 /* Transformers */; };
 		B100000A /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000A /* AudioRecorder.swift */; };
+		B100000B /* BenchmarkSuite.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000B /* BenchmarkSuite.swift */; };
 		B1000010 /* CoreMLLLM in Frameworks */ = {isa = PBXBuildFile; productRef = B9000003 /* CoreMLLLM */; };
 		B60E4AB380E7B9E215F1B15E /* Qwen35DecodeBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFCA443D88C77BE08F8E926D /* Qwen35DecodeBenchmark.swift */; };
 		B9444340CC3F9613F49819E4 /* Qwen3VL8BStatefulGeneratorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC7DE51F93E07E83F11BA09 /* Qwen3VL8BStatefulGeneratorView.swift */; };
@@ -44,6 +45,7 @@
 		B2000007 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B2000009 /* CoreMLLLMChat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CoreMLLLMChat.entitlements; sourceTree = "<group>"; };
 		B200000A /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
+		B200000B /* BenchmarkSuite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkSuite.swift; sourceTree = "<group>"; };
 		B3000001 /* CoreMLLLMChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CoreMLLLMChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CFCA443D88C77BE08F8E926D /* Qwen35DecodeBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Qwen35DecodeBenchmark.swift; path = CoreMLLLMChat/Qwen35DecodeBenchmark.swift; sourceTree = SOURCE_ROOT; };
 		D1E20000000000000000BE02 /* GateZeroBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GateZeroBenchmark.swift; path = CoreMLLLMChat/GateZeroBenchmark.swift; sourceTree = SOURCE_ROOT; };
@@ -96,6 +98,7 @@
 				B2000004 /* LLMRunner.swift */,
 				B2000006 /* ModelPickerView.swift */,
 				B200000A /* AudioRecorder.swift */,
+				B200000B /* BenchmarkSuite.swift */,
 				B2000009 /* CoreMLLLMChat.entitlements */,
 				B2000007 /* Assets.xcassets */,
 			);
@@ -155,7 +158,7 @@
 			mainGroup = B5000001;
 			packageReferences = (
 				B9000002 /* XCRemoteSwiftPackageReference "swift-transformers" */,
-				B9000004 /* XCLocalSwiftPackageReference ".." */,
+				B9000004 /* XCLocalSwiftPackageReference "../.." */,
 			);
 			productRefGroup = B5000003 /* Products */;
 			projectDirPath = "";
@@ -189,6 +192,7 @@
 				B1000004 /* LLMRunner.swift in Sources */,
 				B1000006 /* ModelPickerView.swift in Sources */,
 				B100000A /* AudioRecorder.swift in Sources */,
+				B100000B /* BenchmarkSuite.swift in Sources */,
 				EF8840D7959C1AB14894FE13 /* Qwen35Benchmark.swift in Sources */,
 				370C4C3589D85D9148AED4C9 /* Qwen35BenchmarkView.swift in Sources */,
 				B60E4AB380E7B9E215F1B15E /* Qwen35DecodeBenchmark.swift in Sources */,
@@ -213,7 +217,7 @@
 				CODE_SIGN_ENTITLEMENTS = CoreMLLLMChat/CoreMLLLMChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = MFN25KNUGJ;
+				DEVELOPMENT_TEAM = 629F3685J2;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CoreMLLLMChat/Info.plist;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
@@ -229,7 +233,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.CoreMLLLMChat;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rk1782931849.coremlllmchat;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -244,7 +248,7 @@
 				CODE_SIGN_ENTITLEMENTS = CoreMLLLMChat/CoreMLLLMChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = MFN25KNUGJ;
+				DEVELOPMENT_TEAM = 629F3685J2;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CoreMLLLMChat/Info.plist;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
@@ -260,7 +264,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.CoreMLLLMChat;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rk1782931849.coremlllmchat;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -342,7 +346,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		B9000004 /* XCLocalSwiftPackageReference ".." */ = {
+		B9000004 /* XCLocalSwiftPackageReference "../.." */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../..;
 		};

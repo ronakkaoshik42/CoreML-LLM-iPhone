@@ -26,6 +26,8 @@ xcuserdata/
 DerivedData/
 build/
 .build/
+benchmark_results/
+*.xcresult
 
 # macOS
 .DS_Store

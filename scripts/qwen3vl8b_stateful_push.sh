@@ -9,7 +9,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC_DIR="${1:-/tmp/qwen3vl8b_stateful/qwen3_vl_8b_stateful_chunks}"
-BUNDLE_ID="com.example.CoreMLLLMChat"
+BUNDLE_ID="com.rk1782931849.coremlllmchat"
 REMOTE_DIR="Documents/Models/qwen3-vl-8b-stateful/qwen3_vl_8b_stateful_chunks"
 
 if [ ! -d "$SRC_DIR" ]; then

@@ -34,6 +34,8 @@ struct ChatView: View {
     // Battery benchmark state
     @State private var benchmarkRunning = false
     @State private var benchmarkStatus: String = ""
+    @State private var showBenchmarkResults = false
+    @State private var didStartLaunchBenchmark = false
 
     var body: some View {
         NavigationStack {
@@ -232,17 +234,37 @@ struct ChatView: View {
                             .disabled(runner.isGenerating || benchmarkRunning)
                     }
                 }
-                if runner.isLoaded {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Menu("Bench") {
-                            Button("2 min (speed)")  { startBenchmark(minutes: 2) }
-                            Button("5 min")          { startBenchmark(minutes: 5) }
-                            Button("15 min (power)") { startBenchmark(minutes: 15) }
-                            Button("30 min")         { startBenchmark(minutes: 30) }
-                            Button("60 min")         { startBenchmark(minutes: 60) }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu("Bench") {
+                        Button("Run 4B Text Benchmark") {
+                            startSuiteBenchmark(model: .fourB, mode: .text)
                         }
-                        .disabled(runner.isGenerating || benchmarkRunning)
+                        Button("Run 8B Text Benchmark") {
+                            startSuiteBenchmark(model: .eightB, mode: .text)
+                        }
+                        Button("Run 4B Image Benchmark") {
+                            startSuiteBenchmark(model: .fourB, mode: .image)
+                        }
+                        Button("Run 8B Image Benchmark") {
+                            startSuiteBenchmark(model: .eightB, mode: .image)
+                        }
+                        Divider()
+                        Button("2 min (speed)")  { startBenchmark(minutes: 2) }
+                            .disabled(!runner.isLoaded)
+                        Button("5 min")          { startBenchmark(minutes: 5) }
+                            .disabled(!runner.isLoaded)
+                        Button("15 min (power)") { startBenchmark(minutes: 15) }
+                            .disabled(!runner.isLoaded)
+                        Button("30 min")         { startBenchmark(minutes: 30) }
+                            .disabled(!runner.isLoaded)
+                        Button("60 min")         { startBenchmark(minutes: 60) }
+                            .disabled(!runner.isLoaded)
+                        Divider()
+                        Button("Benchmark Results") {
+                            showBenchmarkResults = true
+                        }
                     }
+                    .disabled(runner.isGenerating || benchmarkRunning)
                 }
                 if runner.hasAudio {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -266,11 +288,17 @@ struct ChatView: View {
                     loadModel(from: modelURL.deletingLastPathComponent())
                 }
             }
+            .sheet(isPresented: $showBenchmarkResults) {
+                BenchmarkResultsView()
+            }
             .onChange(of: selectedPhoto) {
                 loadPhoto()
             }
             .onChange(of: selectedVideoItem) {
                 loadVideo()
+            }
+            .task {
+                await startLaunchBenchmarkIfRequested()
             }
         }
     }
@@ -606,6 +634,56 @@ struct ChatView: View {
         }
     }
 
+    private func startSuiteBenchmark(
+        model: BenchmarkSuite.Model,
+        mode: BenchmarkSuite.Mode,
+        maxNewTokens: Int = 64,
+        automatic: Bool = false
+    ) {
+        benchmarkRunning = true
+        let prefix = automatic ? "Auto benchmark" : "Benchmark"
+        benchmarkStatus = "\(prefix): running \(model.rawValue) \(mode.rawValue)…"
+        let suite = BenchmarkSuite(runner: runner)
+        let image = mode == .image ? selectedImage : nil
+        UIApplication.shared.isIdleTimerDisabled = true
+
+        Task.detached(priority: .userInitiated) {
+            let success = await suite.run(
+                model: model,
+                mode: mode,
+                image: image,
+                maxNewTokens: maxNewTokens)
+            await MainActor.run {
+                UIApplication.shared.isIdleTimerDisabled = false
+                benchmarkRunning = false
+                benchmarkStatus = success
+                    ? "\(prefix): \(model.rawValue) \(mode.rawValue) done."
+                    : "\(prefix): \(model.rawValue) \(mode.rawValue) failed."
+                messages.append(ChatMessage(
+                    role: .system,
+                    content: "[Benchmark] \(benchmarkStatus) Open Bench → Benchmark Results."))
+            }
+        }
+    }
+
+    @MainActor
+    private func startLaunchBenchmarkIfRequested() async {
+        guard !didStartLaunchBenchmark,
+              let config = BenchmarkSuite.LaunchConfiguration(
+                arguments: ProcessInfo.processInfo.arguments)
+        else { return }
+
+        didStartLaunchBenchmark = true
+        benchmarkStatus = "Auto benchmark: preparing \(config.model.rawValue) "
+            + "\(config.mode.rawValue)…"
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        startSuiteBenchmark(
+            model: config.model,
+            mode: config.mode,
+            maxNewTokens: config.maxNewTokens,
+            automatic: true)
+    }
+
     private func saveBenchmarkCSV(_ result: LLMRunner.BenchmarkResult) -> String? {
         let fm = FileManager.default
         guard let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
@@ -696,6 +774,51 @@ struct ChatView: View {
                 }
             } catch {
                 messages.append(ChatMessage(role: .system, content: "Error: \(error.localizedDescription)"))
+            }
+        }
+    }
+}
+
+private struct BenchmarkResultsView: View {
+    @Environment(\.dismiss) private var dismiss
+    private let lines = CoreMLPerfStats.storedResultLines()
+
+    private var latestLoad: String {
+        lines.last(where: { $0.contains("[RESULT_LOAD]") }) ?? "No load result yet."
+    }
+
+    private var latestGeneration: String {
+        lines.last(where: { $0.contains("[RESULT]") }) ?? "No generation result yet."
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Latest load") {
+                    Text(latestLoad)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                }
+                Section("Latest generation") {
+                    Text(latestGeneration)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                }
+                Section {
+                    Button("Copy Results") {
+                        UIPasteboard.general.string = lines.joined(separator: "\n")
+                    }
+                    .disabled(lines.isEmpty)
+                } footer: {
+                    Text("Saved in Documents/benchmark_results.log")
+                }
+            }
+            .navigationTitle("Benchmark Results")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
     }
